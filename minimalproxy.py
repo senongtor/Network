@@ -8,7 +8,13 @@ args = parser.parse_args()
 MAX_DATA_RECV = 8192
 BLOCKED = ['www.baidu.com','www.cnn.com','www.nyu.edu','www.aol.com','www.dmv.org',
 'www.stackoverflow.com','www.bbc.co.uk','www.youku.com','www.ticketmaster.com','www.columbia.edu']
-FILTERED = ['research']
+FILTERED = ['research','porn']
+REDIR=r'''HTTP/1.0 404 Not Found
+Content-Type: text/html
+
+404 NOT FOUND!
+
+'''
 
 def main():
     port=args.port
@@ -38,7 +44,6 @@ def main():
 def proxy_process(conn, client):
     #read the request
     request = conn.recv(MAX_DATA_RECV)
-    print "RRR",request
     if request == '':
         conn.close()
         return
@@ -54,7 +59,7 @@ def proxy_process(conn, client):
     port = 80
     # if httptype=='https':
     #     port = 443
-    
+
     if ':' in url:
         port=url.split(':')[1]
         url=url.split(':')[0]
@@ -74,30 +79,23 @@ def proxy_process(conn, client):
         while True:
             data = ''
             if url in BLOCKED:
-                data=r'''HTTP/1.0 404 Not Found
-                Content-Type: text/html
-
-                404 NOT FOUND!
-
-                '''
+                data=REDIR
                 conn.send(data)
-
                 print "\033[",91,"m","HTTP/1.0 404 Not Found For ", url,"\033[0m"
-                break
+                s.close()
+                conn.close()
+                sys.exit(1)
 
             data=s.recv(MAX_DATA_RECV)
 
             if (len(data) > 0):
-                if FILTERED[0] in data.lower():
-                    data=r'''HTTP/1.0 404 Not Found
-                    Content-Type: text/html
-
-                    404 NOT FOUND!
-
-                    '''
-                    conn.send(data)
-                    s.close()
-                    conn.close()
+                for word in FILTERED:
+                    if word in data.lower():
+                        conn.send(REDIR)
+                        print "\033[",90,"m","Filtered keywords on ", url,"\033[0m"
+                        s.close()
+                        conn.close()
+                        sys.exit(1)
                 # send to client
                 conn.send(data)
             else:
