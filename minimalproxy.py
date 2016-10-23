@@ -1,102 +1,112 @@
-import os,sys,thread,socket,argparse,time
+import os,sys,thread,socket,time, argparse
 
 #Args
 parser = argparse.ArgumentParser(description='ProxyDescription')
 parser.add_argument('port', action='store', help='Port Number', default=8080, type=int)
 args = parser.parse_args()
-#CONSTANT
-BACKLOG = 8192  # max number of bytes we receive at once
-BLOCKED = []
+
+MAX_DATA_RECV = 8192
+BLOCKED = ['www.baidu.com','www.cnn.com','www.nyu.edu','www.aol.com','www.dmv.org',
+'www.stackoverflow.com','www.bbc.co.uk','www.youku.com','www.ticketmaster.com','www.columbia.edu']
+FILTERED = ['research']
 
 def main():
-    port = args.port
+    port=args.port
+    #Accecpt all hosts
     host = ''
 
+    print 'Proxy Server Running on port ',port
+
     try:
+        #create a socket with the proxy
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.bind((host, port))
         s.listen(5)
 
-    except socket.error, (value, message):
-        if s:
-            s.close()
-        print "Could not open socket:", message
+    except socket.error as msg:
+        s.close()
+        s = None
+        print 'Could not open socket:', msg[1]
         sys.exit(1)
 
-    # get the connection from client
     while True:
-        conn, client_addr = s.accept()
-        thread.start_new_thread(proxy, (conn, client_addr))
+        conn, client = s.accept()
+        thread.start_new_thread(proxy_process, (conn, client))
     s.close()
 
-def printout(type,request,address):
-    if "Block" in type or "Blacklist" in type:
-        colornum = 91
-    elif "Request" in type:
-        colornum = 92
 
+def proxy_process(conn, client):
+    #read the request
+    request = conn.recv(MAX_DATA_RECV)
+    print "RRR",request
+    if request == '':
+        conn.close()
+        return
 
-    print "\033[",colornum,"m",address[0],"\t",type,"\t",request,"\033[0m"
+    #Read the first line of the request, it will contains GET http://...
+    header = request.split('\n')[0]
+    url = header.split(' ')[1].lower()
 
-def proxy(conn, client_addr):
-    # get the request from browser
-    requestContent = conn.recv(BACKLOG)
-    # parse the first line
-    first_line = requestContent.split('\n')[0]
+    if '://' in url:
+        httptype=url.split('://')[0]
+        url=url.split('://')[1]
 
-    # get url
-    url = first_line.split(' ')[1].lower()
+    port = 80
+    # if httptype=='https':
+    #     port = 443
+    
+    if ':' in url:
+        port=url.split(':')[1]
+        url=url.split(':')[0]
 
-    # for i in range(0,len(BLOCKED)):
-    #     if BLOCKED[i] in url:
-    #         printout("Blacklisted",first_line,client_addr)
-    #         conn.close()
-    #         sys.exit(1)
+    if '/' in url:
+        url = url[:url.find('/')]
 
+    if url not in BLOCKED:
+        print "\033[",92,"m","\t","Request","\t",header,"\033[0m"
 
-    printout("Request",first_line,client_addr)
-
-    # find the webserver and port
-    http_pos = url.find("://")          # find pos of ://
-    temp = url[(http_pos+3):]       # get the rest of url
-
-    #port_pos = temp.find(":")           # find the port pos (if any)
-
-    # find end of web server
-    webserver_pos = temp.find("/")
-    if webserver_pos == -1:
-        webserver_pos = len(temp)
-
-
-    # if (port_pos==-1 or webserver_pos < port_pos):      # default port
-
-    outAddress = temp[:webserver_pos]
-    # else:       # specific port
-    #
-    #     webserver = temp[:port_pos]
     try:
-        # create a socket to connect to the web server
+        # create a socket to connect to the destination
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((outAddress, 80))
-        s.send(requestContent)         # send request to webserver
+        s.connect((url, port))
+        s.send(request)
 
         while True:
-            # receive data from web server
-            data = s.recv(BACKLOG)
+            data = ''
+            if url in BLOCKED:
+                data=r'''HTTP/1.0 404 Not Found
+                Content-Type: text/html
+
+                404 NOT FOUND!
+
+                '''
+                conn.send(data)
+
+                print "\033[",91,"m","HTTP/1.0 404 Not Found For ", url,"\033[0m"
+                break
+
+            data=s.recv(MAX_DATA_RECV)
+
             if (len(data) > 0):
-                # send to browser
+                if FILTERED[0] in data.lower():
+                    data=r'''HTTP/1.0 404 Not Found
+                    Content-Type: text/html
+
+                    404 NOT FOUND!
+
+                    '''
+                    conn.send(data)
+                    s.close()
+                    conn.close()
+                # send to client
                 conn.send(data)
             else:
                 break
         s.close()
         conn.close()
-    except socket.error, (value, message):
-        if s:
-            s.close()
-        if conn:
-            conn.close()
-        printout("Peer Reset",first_line,client_addr)
+    except socket.error as msg:
+        s.close()
+        conn.close()
         sys.exit(1)
-
 
 main()
